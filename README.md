@@ -200,6 +200,63 @@ $$
 - Monte-Carlo failure propagation analysis  
 
 ---
+## Trans-Relativistic Energy–Impulse Convergence Derivation (TREICD)
+
+The full energetic convergence of the return vehicle under relativistic propulsion, gravitational compression, and stochastic thrust variance is expressed as:
+
+$$
+E_{total} = E_k + E_p + E_r + E_s
+$$
+
+$$
+E_{total} = \frac{1}{2} m v^2 - \frac{G M m}{r} + \gamma m c^2 + \sigma^2
+$$
+
+$$
+E_{total} = \frac{1}{2} m v^2 - \frac{G M m}{r} + \frac{m c^2}{\sqrt{1 - \frac{v^2}{c^2}}} + \sigma^2
+$$
+
+$$
+E_{total} = m c^2 \left( \frac{1}{\sqrt{1 - \frac{v^2}{c^2}}} - 1 \right) + \frac{1}{2} m v^2 - \frac{G M m}{r} + \sigma^2
+$$
+
+$$
+E_{total} = \frac{m c^2}{\sqrt{1 - \beta^2}} - m c^2 + \frac{1}{2} m v^2 - \frac{G M m}{r} + \sigma^2
+$$
+
+$$
+E_{total} = m c^2 \left( \frac{1 - \sqrt{1 - \beta^2}}{\sqrt{1 - \beta^2}} \right) + \frac{1}{2} m v^2 - \frac{G M m}{r} + \sigma^2
+$$
+
+$$
+E_{total} = \frac{m c^2 \beta^2}{(1 + \sqrt{1 - \beta^2})} + \frac{1}{2} m v^2 - \frac{G M m}{r} + \sigma^2
+$$
+
+$$
+E_{total} = \frac{m v^2}{2} \left( 1 + \frac{2c^2}{(1 + \sqrt{1 - \beta^2})} \right) - \frac{G M m}{r} + \sigma^2
+$$
+
+Where:
+
+- $\beta = \frac{v}{c}$  
+- $G$ = gravitational constant  
+- $M$ = central body mass  
+- $r$ = radial distance  
+- $\sigma^2$ = stochastic thrust noise variance  
+
+---
+
+### Interpretation
+
+This stepwise derivation decomposes the **total return energy budget** into:
+
+- Relativistic rest-mass distortion  
+- Classical kinetic contribution  
+- Gravitational potential well coupling  
+- Stochastic propulsion uncertainty  
+
+Resulting in a **multi-domain energy stabilization functional** suitable for deep-space mission profiles.
+
 
 ## Mission Objective  
 
