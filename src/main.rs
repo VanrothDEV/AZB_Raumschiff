@@ -20,21 +20,21 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     let result = if args.contains(&"--fast".to_string()) {
-        println!("⚡ Schnellmodus aktiviert (dt=100s)");
+        println!("⚡ Schnellmodus aktiviert (dt=5s)");
         println!();
         let config = SimConfig {
-            dt: 100.0,          // Größerer Zeitschritt
+            dt: 5.0,           // 5s Zeitschritt
             telemetry_interval: 600.0,
             ..Default::default()
         };
         let mut sim = MoonMissionSim::new(config);
         sim.run()
     } else if args.contains(&"--test".to_string()) {
-        println!("🧪 Testmodus (10 Minuten simuliert)");
+        println!("🧪 Testmodus (1 Stunde simuliert)");
         println!();
         let config = SimConfig {
             dt: 1.0,
-            max_time: 600.0,    // 10 Minuten
+            max_time: 3600.0,    // 1 Stunde
             telemetry_interval: 60.0,
             ..Default::default()
         };

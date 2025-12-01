@@ -162,6 +162,10 @@ pub struct GuidanceComputer {
     pub max_thrust: f64,
     /// Aktueller Missionszustand
     pub phase: MissionPhase,
+    /// TLI abgeschlossen
+    pub tli_complete: bool,
+    /// LOI abgeschlossen  
+    pub loi_complete: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -184,82 +188,117 @@ impl GuidanceComputer {
             target_position: moon_surface,
             target_velocity: Vector3::zeros(),
             max_thrust,
-            phase: MissionPhase::Ascent,
+            phase: MissionPhase::TransLunarInjection, // Starte direkt mit TLI (bereits im Orbit)
+            tli_complete: false,
+            loi_complete: false,
         }
     }
 
     /// Berechnet Schubvektor basierend auf aktuellem Zustand
-    /// Verwendet vereinfachtes Proportional-Navigation
     pub fn compute_thrust(
         &mut self,
         position: &Vector3<f64>,
         velocity: &Vector3<f64>,
         moon_pos: &Vector3<f64>,
     ) -> Vector3<f64> {
-        let to_moon = moon_pos - position;
-        let distance_to_moon = to_moon.norm();
+        let distance_to_moon = (moon_pos - position).norm();
+        let distance_to_earth = position.norm();
+        let speed = velocity.norm();
+        let altitude_earth = distance_to_earth - 6.371e6;
 
         // Phasenwechsel-Logik
-        self.update_phase(distance_to_moon, velocity.norm());
+        self.update_phase(distance_to_moon, speed, distance_to_earth);
 
         match self.phase {
-            MissionPhase::Ascent => {
-                // Aufstieg: Schub weg von der Erde
-                position.normalize() * self.max_thrust
-            }
+            MissionPhase::Ascent => Vector3::zeros(), // Nicht verwendet
+            
             MissionPhase::TransLunarInjection => {
-                // TLI: Schub Richtung Mond mit Geschwindigkeitskorrektur
-                let desired_vel = to_moon.normalize() * 1000.0; // ~1 km/s Richtung Mond
-                let vel_error = desired_vel - velocity;
-                vel_error.normalize() * self.max_thrust * 0.5
-            }
-            MissionPhase::LunarOrbitInsertion => {
-                // LOI: Bremsen für Orbit-Eintritt
-                -velocity.normalize() * self.max_thrust * 0.8
-            }
-            MissionPhase::Descent => {
-                // Abstieg: Gravity-Turn ähnliche Landung
-                let alt = distance_to_moon - 1.737e6; // Mondradius
-                if alt < 10_000.0 && velocity.norm() > 10.0 {
-                    // Finale Landephase: stark bremsen
-                    -velocity.normalize() * self.max_thrust
+                // TLI: Kurzer Burn bis ~10.8 km/s, dann Coast
+                if !self.tli_complete && speed < 10_800.0 {
+                    velocity.normalize() * self.max_thrust
                 } else {
-                    // Kontrollierter Abstieg
-                    -velocity.normalize() * self.max_thrust * 0.3
+                    if !self.tli_complete {
+                        self.tli_complete = true;
+                        println!("🔥 TLI Burn complete! Coasting to Moon... (v: {:.0}m/s)", speed);
+                    }
+                    Vector3::zeros() // COAST - kein Schub!
                 }
             }
+            
+            MissionPhase::LunarOrbitInsertion => {
+                // LOI: Bremsen wenn nahe am Mond
+                if !self.loi_complete && speed > 800.0 {
+                    -velocity.normalize() * self.max_thrust * 0.5
+                } else {
+                    if !self.loi_complete && speed <= 800.0 {
+                        self.loi_complete = true;
+                        println!("🔥 LOI Burn complete! In lunar orbit (v: {:.0}m/s)", speed);
+                    }
+                    Vector3::zeros()
+                }
+            }
+            
+            MissionPhase::Descent => {
+                let alt_moon = distance_to_moon - 1.737e6;
+                
+                // Sanfte Landung: Geschwindigkeit proportional zur Höhe
+                let target_speed = if alt_moon > 50_000.0 {
+                    300.0
+                } else if alt_moon > 5_000.0 {
+                    100.0
+                } else if alt_moon > 500.0 {
+                    30.0
+                } else {
+                    5.0
+                };
+                
+                if speed > target_speed {
+                    -velocity.normalize() * self.max_thrust * 0.8
+                } else {
+                    Vector3::zeros()
+                }
+            }
+            
             MissionPhase::Landed => Vector3::zeros(),
         }
     }
 
-    fn update_phase(&mut self, distance_to_moon: f64, speed: f64) {
+    fn update_phase(&mut self, distance_to_moon: f64, speed: f64, distance_to_earth: f64) {
+        let altitude_earth = distance_to_earth - 6.371e6;
+        
         match self.phase {
             MissionPhase::Ascent => {
-                // Nach Erreichen von Fluchtgeschwindigkeit: TLI
-                if speed > 10_000.0 {
+                // LEO erreicht: 185km+, 7.7+ km/s
+                if altitude_earth > 185_000.0 && speed >= 7_700.0 {
                     self.phase = MissionPhase::TransLunarInjection;
-                    println!("🚀 Phase: Trans-Lunar Injection");
+                    println!("🚀 Phase: Trans-Lunar Injection (alt: {:.0}km, v: {:.0}m/s)", 
+                             altitude_earth/1000.0, speed);
                 }
             }
             MissionPhase::TransLunarInjection => {
-                // Nahe am Mond: LOI
-                if distance_to_moon < 100_000_000.0 {
+                // Nahe Mond und TLI abgeschlossen
+                if distance_to_moon < 66_000_000.0 {
                     self.phase = MissionPhase::LunarOrbitInsertion;
-                    println!("🌙 Phase: Lunar Orbit Insertion");
+                    println!("🌙 Phase: Lunar Orbit Insertion (dist: {:.0}km, v: {:.0}m/s)", 
+                             distance_to_moon/1000.0, speed);
                 }
             }
             MissionPhase::LunarOrbitInsertion => {
-                // Niedrige Geschwindigkeit erreicht: Abstieg
-                if speed < 2000.0 {
+                // Mondorbit erreicht: <2000km, <1.7 km/s
+                let alt_moon = distance_to_moon - 1.737e6;
+                if alt_moon < 200_000.0 && speed < 1_700.0 {
                     self.phase = MissionPhase::Descent;
-                    println!("⬇️ Phase: Descent");
+                    println!("⬇️ Phase: Descent (alt: {:.0}km, v: {:.0}m/s)", 
+                             alt_moon/1000.0, speed);
                 }
             }
             MissionPhase::Descent => {
-                // Auf Mondoberfläche: Gelandet
-                if distance_to_moon < 1.74e6 && speed < 5.0 {
+                // Touchdown
+                let altitude_moon = distance_to_moon - 1.737e6;
+                if altitude_moon < 10.0 && speed < 3.0 {
                     self.phase = MissionPhase::Landed;
-                    println!("🎉 LANDED ON THE MOON!");
+                    println!("🎉 LANDED ON THE MOON! (alt: {:.1}m, v: {:.1}m/s)", 
+                             altitude_moon, speed);
                 }
             }
             MissionPhase::Landed => {}

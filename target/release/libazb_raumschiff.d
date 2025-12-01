@@ -1,0 +1,1 @@
+/workspaces/AZB_Raumschiff/target/release/libazb_raumschiff.rlib: /workspaces/AZB_Raumschiff/src/fdir.rs /workspaces/AZB_Raumschiff/src/gnc.rs /workspaces/AZB_Raumschiff/src/lib.rs /workspaces/AZB_Raumschiff/src/physics.rs /workspaces/AZB_Raumschiff/src/simulation.rs /workspaces/AZB_Raumschiff/src/telemetry.rs

@@ -35,10 +35,10 @@ impl Default for SimConfig {
     fn default() -> Self {
         Self {
             dt: 1.0,                    // 1 Sekunde Zeitschritt
-            max_time: 3.0 * 24.0 * 3600.0, // 3 Tage max
-            isp: 450.0,                 // Guter chemischer Antrieb
-            max_thrust: 500_000.0,      // 500 kN
-            initial_mass: 50_000.0,     // 50 Tonnen
+            max_time: 5.0 * 24.0 * 3600.0, // 5 Tage max
+            isp: 450.0,                 // Spezifischer Impuls (hohe Effizienz)
+            max_thrust: 100_000.0,      // 100 kN (moderater Schub für Weltraum)
+            initial_mass: 45_000.0,     // 45 Tonnen
             dry_mass: 5_000.0,          // 5 Tonnen
             telemetry_interval: 60.0,   // Alle 60 Sekunden
         }
@@ -74,9 +74,9 @@ impl MoonMissionSim {
         // Mond auf X-Achse
         let moon_pos = Vector3::new(EARTH_MOON_DISTANCE, 0.0, 0.0);
 
-        // Raumschiff startet auf Erdoberfläche (Äquator)
-        let initial_pos = Vector3::new(6.371e6, 0.0, 0.0);
-        let initial_vel = Vector3::new(0.0, 465.0, 0.0); // Erdrotation ~465 m/s
+        // Raumschiff startet bereits im LEO (realistisch nach Raketenstart)
+        let initial_pos = Vector3::new(6.571e6, 0.0, 0.0);  // 200km Orbit
+        let initial_vel = Vector3::new(0.0, 7_784.0, 0.0);  // Orbitalgeschwindigkeit
 
         let state = SpacecraftState::new(initial_pos, initial_vel, config.initial_mass);
 
