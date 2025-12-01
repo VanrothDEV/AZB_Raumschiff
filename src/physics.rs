@@ -16,6 +16,12 @@ pub const M_EARTH: f64 = 5.972e24;
 /// Mondmasse [kg]
 pub const M_MOON: f64 = 7.342e22;
 
+/// Erdradius [m]
+pub const R_EARTH: f64 = 6.371e6;
+
+/// Mondradius [m]
+pub const R_MOON: f64 = 1.737e6;
+
 /// Erdbeschleunigung [m/s²]
 pub const G0: f64 = 9.80665;
 

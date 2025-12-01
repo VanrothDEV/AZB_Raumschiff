@@ -1,12 +1,14 @@
 //! Simulations-Modul: 6-DOF Mission Simulation
 //!
 //! Führt die gesamte Mondmission durch:
-//! - Initialisierung auf Erdoberfläche
-//! - Aufstieg, Transfer, Orbit, Landung
+//! - Initialisierung im niedrigen Erdorbit (LEO)
+//! - Transfer zum Mond (TLI)
+//! - Mondorbit-Eintritt (LOI)
+//! - Abstieg und Landung
 //! - Echtzeit-Telemetrie
 
 use crate::physics::{
-    self, SpacecraftState, EARTH_MOON_DISTANCE,
+    self, SpacecraftState, EARTH_MOON_DISTANCE, G, M_EARTH, R_EARTH,
 };
 use crate::gnc::{GuidanceComputer, KalmanFilter, MissionPhase, add_sensor_noise};
 use crate::fdir::FDIRManager;
@@ -79,8 +81,8 @@ impl MoonMissionSim {
         // in Flugrichtung beschleunigt. Die optimale Startposition ist dort,
         // wo die Tangentialgeschwindigkeit nach dem Burn zum Mond zeigt.
         let orbit_altitude: f64 = 400_000.0; // 400 km
-        let orbit_radius: f64 = 6.371e6 + orbit_altitude;
-        let orbital_velocity: f64 = (6.67430e-11_f64 * 5.972e24_f64 / orbit_radius).sqrt();
+        let orbit_radius: f64 = R_EARTH + orbit_altitude;
+        let orbital_velocity: f64 = (G * M_EARTH / orbit_radius).sqrt();
         
         // Startposition: Im Orbit, Geschwindigkeit zeigt zum Mond (+X)
         // Position bei (0, -R, 0), Geschwindigkeit bei (+v, 0, 0)
@@ -90,7 +92,7 @@ impl MoonMissionSim {
         let state = SpacecraftState::new(initial_pos, initial_vel, config.initial_mass);
 
         // Ziel: Mondoberfläche
-        let moon_surface = moon_pos - Vector3::new(1.737e6, 0.0, 0.0);
+        let moon_surface = moon_pos - Vector3::new(crate::physics::R_MOON, 0.0, 0.0);
         let guidance = GuidanceComputer::new(moon_surface, config.max_thrust);
 
         // Kalman-Filter initialisieren
@@ -144,7 +146,7 @@ impl MoonMissionSim {
             }
 
             // Erdkollisionserkennung
-            let earth_altitude = self.state.position.norm() - 6.371e6;
+            let earth_altitude = self.state.position.norm() - R_EARTH;
             if earth_altitude < -100.0 {
                 println!("💥 Mission failed: Collision with Earth!");
                 break;

@@ -7,6 +7,7 @@
 
 use nalgebra::{Matrix3, Matrix6, Vector3, Vector6, UnitQuaternion};
 use rand::Rng;
+use crate::physics::{G, M_EARTH, R_EARTH, R_MOON};
 
 /// Kalman-Filter Zustand (Position + Geschwindigkeit)
 #[derive(Debug, Clone)]
@@ -199,7 +200,7 @@ impl GuidanceComputer {
         let to_moon = moon_pos - position;
         let distance_to_moon = to_moon.norm();
         let distance_to_earth = position.norm();
-        let altitude = distance_to_earth - 6.371e6; // Höhe über Erde
+        let altitude = distance_to_earth - R_EARTH;
         let speed = velocity.norm();
 
         // Phasenwechsel-Logik
@@ -211,8 +212,8 @@ impl GuidanceComputer {
                 // Dies ist der effizienteste Weg, um Fluchtgeschwindigkeit zu erreichen
                 let prograde = velocity.normalize();
                 
-                // Fluchtgeschwindigkeit bei dieser Höhe
-                let escape_vel = (2.0 * 6.67430e-11 * 5.972e24 / distance_to_earth).sqrt();
+                // Fluchtgeschwindigkeit bei dieser Höhe: v_esc = √(2GM/r)
+                let escape_vel = (2.0 * G * M_EARTH / distance_to_earth).sqrt();
                 
                 // Throttle: Vollgas bis Fluchtgeschwindigkeit + 10% Extra für TLI
                 let throttle = if speed > escape_vel * 1.1 {
@@ -239,7 +240,7 @@ impl GuidanceComputer {
             }
             MissionPhase::Descent => {
                 // Abstieg: Sanfte Landung
-                let alt = distance_to_moon - 1.737e6; // Mondradius
+                let alt = distance_to_moon - R_MOON;
                 
                 if alt < 500.0 && speed > 1.0 {
                     // Finale Landephase: sehr sanft bremsen
@@ -262,8 +263,8 @@ impl GuidanceComputer {
         match self.phase {
             MissionPhase::Ascent => {
                 // Übergang zu TLI wenn auf Trans-Lunar Bahn
-                let r = 6.371e6 + altitude;
-                let escape_vel_at_altitude = (2.0 * 6.67430e-11 * 5.972e24 / r).sqrt();
+                let r = R_EARTH + altitude;
+                let escape_vel_at_altitude = (2.0 * G * M_EARTH / r).sqrt();
                 
                 // Wenn wir die lokale Fluchtgeschwindigkeit überschritten haben
                 // starten wir die Coast-Phase
@@ -282,7 +283,7 @@ impl GuidanceComputer {
             }
             MissionPhase::LunarOrbitInsertion => {
                 // Niedrige Geschwindigkeit erreicht und nahe am Mond: Abstieg
-                let moon_altitude = distance_to_moon - 1.737e6; // Höhe über Mondoberfläche
+                let moon_altitude = distance_to_moon - R_MOON;
                 if speed < 1700.0 && moon_altitude < 200_000.0 {
                     self.phase = MissionPhase::Descent;
                     println!("⬇️ Phase: Descent (alt={:.0} km, v={:.0} m/s)", moon_altitude / 1000.0, speed);
@@ -290,7 +291,7 @@ impl GuidanceComputer {
             }
             MissionPhase::Descent => {
                 // Auf Mondoberfläche: Gelandet
-                let moon_altitude = distance_to_moon - 1.737e6;
+                let moon_altitude = distance_to_moon - R_MOON;
                 if moon_altitude < 100.0 && speed < 5.0 {
                     self.phase = MissionPhase::Landed;
                     println!("🎉 LANDED ON THE MOON!");
