@@ -1,0 +1,306 @@
+//! GNC-Modul: Guidance, Navigation & Control
+//!
+//! Enthält:
+//! - Kalman-Filter für Zustandsschätzung
+//! - Quaternion-basierte Lageregelung
+//! - Einfache Guidance-Logik für Mondlandung
+
+use nalgebra::{Matrix3, Matrix6, Vector3, Vector6, UnitQuaternion};
+use rand::Rng;
+
+/// Kalman-Filter Zustand (Position + Geschwindigkeit)
+#[derive(Debug, Clone)]
+pub struct KalmanFilter {
+    /// Geschätzter Zustand [x, y, z, vx, vy, vz]
+    pub state: Vector6<f64>,
+    /// Kovarianzmatrix P
+    pub covariance: Matrix6<f64>,
+    /// Prozessrauschen Q
+    pub process_noise: Matrix6<f64>,
+    /// Messrauschen R (nur Position messbar)
+    pub measurement_noise: Matrix3<f64>,
+}
+
+impl KalmanFilter {
+    pub fn new(initial_state: Vector6<f64>) -> Self {
+        Self {
+            state: initial_state,
+            covariance: Matrix6::identity() * 1000.0,
+            process_noise: Matrix6::identity() * 0.1,
+            measurement_noise: Matrix3::identity() * 10.0,
+        }
+    }
+
+    /// Predict-Schritt: x_k|k-1 = F * x_k-1
+    pub fn predict(&mut self, dt: f64) {
+        // Zustandsübergangsmatrix F (konstante Geschwindigkeit)
+        let mut f = Matrix6::identity();
+        f[(0, 3)] = dt;
+        f[(1, 4)] = dt;
+        f[(2, 5)] = dt;
+
+        // Prädiktion
+        self.state = f * self.state;
+        self.covariance = f * self.covariance * f.transpose() + self.process_noise * dt;
+    }
+
+    /// Update-Schritt mit Positionsmessung
+    /// x_k|k = x_k|k-1 + K * (z - H * x_k|k-1)
+    /// K = P * H^T * (H * P * H^T + R)^-1
+    pub fn update(&mut self, measurement: &Vector3<f64>) {
+        // Beobachtungsmatrix H (nur Position)
+        let mut h = nalgebra::Matrix3x6::zeros();
+        h[(0, 0)] = 1.0;
+        h[(1, 1)] = 1.0;
+        h[(2, 2)] = 1.0;
+
+        // Innovation
+        let predicted_measurement = h * self.state;
+        let innovation = measurement - predicted_measurement;
+
+        // Kalman-Gain: K = P * H^T * (H * P * H^T + R)^-1
+        let s = h * self.covariance * h.transpose() + self.measurement_noise;
+        if let Some(s_inv) = s.try_inverse() {
+            let k = self.covariance * h.transpose() * s_inv;
+
+            // Zustand aktualisieren
+            self.state += k * innovation;
+
+            // Kovarianz aktualisieren
+            let i = Matrix6::identity();
+            self.covariance = (i - k * h) * self.covariance;
+        }
+    }
+
+    /// Gibt geschätzte Position zurück
+    pub fn estimated_position(&self) -> Vector3<f64> {
+        Vector3::new(self.state[0], self.state[1], self.state[2])
+    }
+
+    /// Gibt geschätzte Geschwindigkeit zurück
+    pub fn estimated_velocity(&self) -> Vector3<f64> {
+        Vector3::new(self.state[3], self.state[4], self.state[5])
+    }
+}
+
+/// Lage (Attitude) des Raumschiffs
+#[derive(Debug, Clone)]
+pub struct AttitudeController {
+    /// Aktuelle Orientierung als Quaternion
+    pub orientation: UnitQuaternion<f64>,
+    /// Winkelgeschwindigkeit [rad/s]
+    pub angular_velocity: Vector3<f64>,
+    /// Ziel-Orientierung
+    pub target_orientation: UnitQuaternion<f64>,
+    /// Regelparameter (P-Anteil)
+    pub kp: f64,
+    /// Regelparameter (D-Anteil)
+    pub kd: f64,
+}
+
+impl AttitudeController {
+    pub fn new() -> Self {
+        Self {
+            orientation: UnitQuaternion::identity(),
+            angular_velocity: Vector3::zeros(),
+            target_orientation: UnitQuaternion::identity(),
+            kp: 2.0,
+            kd: 1.0,
+        }
+    }
+
+    /// Setzt Ziel-Orientierung basierend auf gewünschter Schubrichtung
+    pub fn point_towards(&mut self, direction: &Vector3<f64>) {
+        if direction.norm() > 1e-6 {
+            let forward = Vector3::new(0.0, 0.0, 1.0);
+            self.target_orientation =
+                UnitQuaternion::rotation_between(&forward, &direction.normalize())
+                    .unwrap_or(UnitQuaternion::identity());
+        }
+    }
+
+    /// Berechnet benötigtes Drehmoment (PD-Regler)
+    /// τ = Kp * θ_error - Kd * ω
+    pub fn compute_torque(&self) -> Vector3<f64> {
+        // Quaternion-Fehler
+        let q_error = self.target_orientation * self.orientation.inverse();
+        let axis_angle = q_error.scaled_axis();
+
+        // PD-Regelgesetz
+        self.kp * axis_angle - self.kd * self.angular_velocity
+    }
+
+    /// Aktualisiert Orientierung basierend auf Drehmoment
+    /// q̇ = 0.5 * Ω(ω) * q
+    pub fn update(&mut self, torque: &Vector3<f64>, inertia: f64, dt: f64) {
+        // Winkelbeschleunigung: α = τ / I
+        let angular_accel = torque / inertia;
+
+        // Winkelgeschwindigkeit aktualisieren
+        self.angular_velocity += angular_accel * dt;
+
+        // Quaternion-Kinematik: q̇ = 0.5 * ω * q
+        let omega_quat = UnitQuaternion::from_scaled_axis(self.angular_velocity * dt);
+        self.orientation = omega_quat * self.orientation;
+    }
+}
+
+impl Default for AttitudeController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Guidance-System für Mondlandung
+#[derive(Debug, Clone)]
+pub struct GuidanceComputer {
+    /// Zielposition (Mondoberfläche)
+    pub target_position: Vector3<f64>,
+    /// Zielgeschwindigkeit (sanfte Landung)
+    pub target_velocity: Vector3<f64>,
+    /// Maximaler Schub [N]
+    pub max_thrust: f64,
+    /// Aktueller Missionszustand
+    pub phase: MissionPhase,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MissionPhase {
+    /// Aufstieg von der Erde
+    Ascent,
+    /// Transferbahn zum Mond
+    TransLunarInjection,
+    /// Mondorbit-Eintritt
+    LunarOrbitInsertion,
+    /// Abstieg zur Oberfläche
+    Descent,
+    /// Gelandet
+    Landed,
+}
+
+impl GuidanceComputer {
+    pub fn new(moon_surface: Vector3<f64>, max_thrust: f64) -> Self {
+        Self {
+            target_position: moon_surface,
+            target_velocity: Vector3::zeros(),
+            max_thrust,
+            phase: MissionPhase::Ascent,
+        }
+    }
+
+    /// Berechnet Schubvektor basierend auf aktuellem Zustand
+    /// Verwendet vereinfachtes Proportional-Navigation
+    pub fn compute_thrust(
+        &mut self,
+        position: &Vector3<f64>,
+        velocity: &Vector3<f64>,
+        moon_pos: &Vector3<f64>,
+    ) -> Vector3<f64> {
+        let to_moon = moon_pos - position;
+        let distance_to_moon = to_moon.norm();
+
+        // Phasenwechsel-Logik
+        self.update_phase(distance_to_moon, velocity.norm());
+
+        match self.phase {
+            MissionPhase::Ascent => {
+                // Aufstieg: Schub weg von der Erde
+                position.normalize() * self.max_thrust
+            }
+            MissionPhase::TransLunarInjection => {
+                // TLI: Schub Richtung Mond mit Geschwindigkeitskorrektur
+                let desired_vel = to_moon.normalize() * 1000.0; // ~1 km/s Richtung Mond
+                let vel_error = desired_vel - velocity;
+                vel_error.normalize() * self.max_thrust * 0.5
+            }
+            MissionPhase::LunarOrbitInsertion => {
+                // LOI: Bremsen für Orbit-Eintritt
+                -velocity.normalize() * self.max_thrust * 0.8
+            }
+            MissionPhase::Descent => {
+                // Abstieg: Gravity-Turn ähnliche Landung
+                let alt = distance_to_moon - 1.737e6; // Mondradius
+                if alt < 10_000.0 && velocity.norm() > 10.0 {
+                    // Finale Landephase: stark bremsen
+                    -velocity.normalize() * self.max_thrust
+                } else {
+                    // Kontrollierter Abstieg
+                    -velocity.normalize() * self.max_thrust * 0.3
+                }
+            }
+            MissionPhase::Landed => Vector3::zeros(),
+        }
+    }
+
+    fn update_phase(&mut self, distance_to_moon: f64, speed: f64) {
+        match self.phase {
+            MissionPhase::Ascent => {
+                // Nach Erreichen von Fluchtgeschwindigkeit: TLI
+                if speed > 10_000.0 {
+                    self.phase = MissionPhase::TransLunarInjection;
+                    println!("🚀 Phase: Trans-Lunar Injection");
+                }
+            }
+            MissionPhase::TransLunarInjection => {
+                // Nahe am Mond: LOI
+                if distance_to_moon < 100_000_000.0 {
+                    self.phase = MissionPhase::LunarOrbitInsertion;
+                    println!("🌙 Phase: Lunar Orbit Insertion");
+                }
+            }
+            MissionPhase::LunarOrbitInsertion => {
+                // Niedrige Geschwindigkeit erreicht: Abstieg
+                if speed < 2000.0 {
+                    self.phase = MissionPhase::Descent;
+                    println!("⬇️ Phase: Descent");
+                }
+            }
+            MissionPhase::Descent => {
+                // Auf Mondoberfläche: Gelandet
+                if distance_to_moon < 1.74e6 && speed < 5.0 {
+                    self.phase = MissionPhase::Landed;
+                    println!("🎉 LANDED ON THE MOON!");
+                }
+            }
+            MissionPhase::Landed => {}
+        }
+    }
+}
+
+/// Fügt Sensorrauschen hinzu (für realistische Simulation)
+pub fn add_sensor_noise(value: &Vector3<f64>, stddev: f64) -> Vector3<f64> {
+    let mut rng = rand::thread_rng();
+    Vector3::new(
+        value.x + rng.gen::<f64>() * stddev - stddev / 2.0,
+        value.y + rng.gen::<f64>() * stddev - stddev / 2.0,
+        value.z + rng.gen::<f64>() * stddev - stddev / 2.0,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_kalman_filter() {
+        let initial = Vector6::new(0.0, 0.0, 0.0, 100.0, 0.0, 0.0);
+        let mut kf = KalmanFilter::new(initial);
+
+        kf.predict(1.0);
+        assert!((kf.state[0] - 100.0).abs() < 1.0); // x = vx * t
+
+        let measurement = Vector3::new(105.0, 0.0, 0.0);
+        kf.update(&measurement);
+        // Position sollte zwischen Prädiktion und Messung liegen
+        assert!(kf.state[0] > 100.0 && kf.state[0] < 105.0);
+    }
+
+    #[test]
+    fn test_attitude_controller() {
+        let mut ctrl = AttitudeController::new();
+        ctrl.point_towards(&Vector3::new(1.0, 0.0, 0.0));
+
+        let torque = ctrl.compute_torque();
+        assert!(torque.norm() > 0.0); // Sollte Drehmoment erzeugen
+    }
+}

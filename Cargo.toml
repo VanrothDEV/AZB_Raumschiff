@@ -1,0 +1,17 @@
+[package]
+name = "azb_raumschiff"
+version = "0.1.0"
+edition = "2021"
+description = "Autonomes Raumfahrzeug zur Mondlandung – AZB_Raumschiff"
+authors = ["VanrothDEV"]
+
+[dependencies]
+nalgebra = "0.32"       # Lineare Algebra, Vektoren, Matrizen, Quaternionen
+rand = "0.8"            # Zufallszahlen für Rauschen/Simulation
+
+[dev-dependencies]
+# Für spätere Tests
+
+[[bin]]
+name = "azb_raumschiff"
+path = "src/main.rs"
