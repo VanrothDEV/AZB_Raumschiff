@@ -6,11 +6,11 @@
 //! - Echtzeit-Telemetrie
 
 use crate::physics::{
-    self, SpacecraftState, EARTH_MOON_DISTANCE, G0,
+    self, SpacecraftState, EARTH_MOON_DISTANCE,
 };
 use crate::gnc::{GuidanceComputer, KalmanFilter, MissionPhase, add_sensor_noise};
 use crate::fdir::FDIRManager;
-use crate::telemetry::{TelemetryLogger, SubsystemId};
+use crate::telemetry::TelemetryLogger;
 use nalgebra::{Vector3, Vector6};
 
 /// Simulationsparameter
@@ -35,11 +35,11 @@ impl Default for SimConfig {
     fn default() -> Self {
         Self {
             dt: 1.0,                    // 1 Sekunde Zeitschritt
-            max_time: 3.0 * 24.0 * 3600.0, // 3 Tage max
-            isp: 450.0,                 // Guter chemischer Antrieb
-            max_thrust: 500_000.0,      // 500 kN
-            initial_mass: 50_000.0,     // 50 Tonnen
-            dry_mass: 5_000.0,          // 5 Tonnen
+            max_time: 5.0 * 24.0 * 3600.0, // 5 Tage max (typische Mondmission)
+            isp: 450.0,                 // Guter chemischer Antrieb (RL-10 Niveau)
+            max_thrust: 500_000.0,      // 500 kN (starke obere Stufe)
+            initial_mass: 250_000.0,    // 250 Tonnen (mehr Treibstoff)
+            dry_mass: 15_000.0,         // 15 Tonnen Trockenmasse
             telemetry_interval: 60.0,   // Alle 60 Sekunden
         }
     }
@@ -74,9 +74,18 @@ impl MoonMissionSim {
         // Mond auf X-Achse
         let moon_pos = Vector3::new(EARTH_MOON_DISTANCE, 0.0, 0.0);
 
-        // Raumschiff startet auf Erdoberfläche (Äquator)
-        let initial_pos = Vector3::new(6.371e6, 0.0, 0.0);
-        let initial_vel = Vector3::new(0.0, 465.0, 0.0); // Erdrotation ~465 m/s
+        // Raumschiff startet in niedrigem Erdorbit (LEO, 400 km Höhe)
+        // Für eine direkte Trans-Lunar-Injection (TLI) wird während des TLI-Burns
+        // in Flugrichtung beschleunigt. Die optimale Startposition ist dort,
+        // wo die Tangentialgeschwindigkeit nach dem Burn zum Mond zeigt.
+        let orbit_altitude: f64 = 400_000.0; // 400 km
+        let orbit_radius: f64 = 6.371e6 + orbit_altitude;
+        let orbital_velocity: f64 = (6.67430e-11_f64 * 5.972e24_f64 / orbit_radius).sqrt();
+        
+        // Startposition: Im Orbit, Geschwindigkeit zeigt zum Mond (+X)
+        // Position bei (0, -R, 0), Geschwindigkeit bei (+v, 0, 0)
+        let initial_pos = Vector3::new(0.0, -orbit_radius, 0.0);
+        let initial_vel = Vector3::new(orbital_velocity, 0.0, 0.0);
 
         let state = SpacecraftState::new(initial_pos, initial_vel, config.initial_mass);
 
@@ -112,8 +121,12 @@ impl MoonMissionSim {
 
     /// Führt die komplette Mission durch
     pub fn run(&mut self) -> SimResult {
+        let orbit_altitude = self.state.position.norm() - 6.371e6;
+        let orbit_velocity = self.state.velocity.norm();
+        
         println!("🚀 AZB_Raumschiff Mission Start!");
         println!("   Ziel: Mondlandung");
+        println!("   Startposition: LEO ({:.0} km Höhe, {:.0} m/s)", orbit_altitude / 1000.0, orbit_velocity);
         println!("   Startmasse: {:.0} kg", self.config.initial_mass);
         println!("   Max. Schub: {:.0} kN", self.config.max_thrust / 1000.0);
         println!();
@@ -127,6 +140,13 @@ impl MoonMissionSim {
             self.fdir.run_cycle();
             if !self.fdir.is_operational() {
                 println!("❌ Mission aborted: System critical failure");
+                break;
+            }
+
+            // Erdkollisionserkennung
+            let earth_altitude = self.state.position.norm() - 6.371e6;
+            if earth_altitude < -100.0 {
+                println!("💥 Mission failed: Collision with Earth!");
                 break;
             }
 
