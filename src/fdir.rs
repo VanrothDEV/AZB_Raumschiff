@@ -83,6 +83,7 @@ impl<T: Clone + PartialEq> RedundantSubsystem<T> {
             (2, _) => SystemStatus::Warning,      // Ein Kanal ausgefallen
             (1, _) => SystemStatus::Fault,        // Nur noch ein Kanal
             (0, _) => SystemStatus::Critical,     // Totalausfall
+            _ => SystemStatus::Critical,          // Unerwarteter Fall
         };
     }
 }

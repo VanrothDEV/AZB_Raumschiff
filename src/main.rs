@@ -20,10 +20,10 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     let result = if args.contains(&"--fast".to_string()) {
-        println!("⚡ Schnellmodus aktiviert (dt=100s)");
+        println!("⚡ Schnellmodus aktiviert (dt=10s)");
         println!();
         let config = SimConfig {
-            dt: 100.0,          // Größerer Zeitschritt
+            dt: 10.0,           // Moderater Zeitschritt (10s)
             telemetry_interval: 600.0,
             ..Default::default()
         };
